@@ -2,9 +2,10 @@ from fabric.api import *
 from fabric.contrib.console import confirm
 
 env.hosts = ['bruno']
+word = 'Hello there'
 
 def hello(name='world'):
-    print("Hello %s!" % name)
+    print(word + " %s!" % name)
     
 def testf(tfile = 'foo'):
     with settings(warn_only=True):
