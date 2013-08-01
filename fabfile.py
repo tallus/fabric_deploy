@@ -38,8 +38,8 @@ def git_push(repo=repository,code_dir=srcdir):
         if result.failed:
             abort('Aborting...unable to push to repository: ' + repo)
 
-def copy_file_to_server(srcfile, destdir, destfile=None):
-    put(code_dir + destfile, destdir, use_sudo=True, mirror_local_mode=True)
+def copy_file_to_server(srcfile, dest):
+    put(code_dir + srcfile, dest, use_sudo=True, mirror_local_mode=True)
 
 def test_remote_dir(rdir):
     result = run("ls " + rdir, quiet=True)
@@ -59,8 +59,8 @@ def predeploy():
     git_push()
 
 def resolve_dependencies(aptlist=None, piplist=None):
-    aptlist = "".join(aptlist)
-    piplist = "".join(piplist)
+    aptlist = " ".join(aptlist)
+    piplist = " ".join(piplist)
     if aptlist:
         sudo("apt-get update")
         result = sudo("apt-get install -y " + aptlist)
@@ -75,21 +75,36 @@ def resolve_dependencies(aptlist=None, piplist=None):
 def deploy(source_files=None, remote_dir=None):
     if  not source_files:
         source_files = srcfiles
-    source_files = source_files.split(',')
+        source_files = source_files.split(',')
     if not source_files:
         abort('No source files supplied')
-    if not remote_dir:
-        if destdir:
-            remote_dir = destdir
+    # check to see if there is per host configuration
+    if config[env.host]:
+        remote_config = config[env.host]
+    if remote_config['remote_dir']:
+            remote_dir = remote_config['remote_dir']
         else:
-            remote_dir = '/usr/local/bin'
+            remote_dir = '/usr/local/bin/'
+    # addend / to remote_dir if needed
+    if remote_dir[len(remote_dir) - 1] != '/':
+        remote_dir = remote_dir + '/'
+    # check to see if remote_dir exists
     test_remote_dir(remote_dir)
+    # check git is up to date
     predeploy()
     resolve_dependencies(aptlist, piplist)
-    
-    # TODO set dest dir and remote file names
-    # TODO loop over source files
-    copy_file_to_server()
+    # copy source files
+    for f in source_files:
+        if remote_config[f]:
+            name = remote_config[f]
+            # if absolute path is not specified prepend remote_dir
+            if name[0] != '/':
+                name = remote_dir + name
+        if name:
+            copy_file_to_server(f, name)
+        else:
+            copy_file_to_server(f, remote_dir)
+
 
 
 
@@ -108,12 +123,11 @@ srcdir =  local_config['source_dir']
 repository = local_config['repository']
 # this can be overridden by specifying it as an option
 # to deploy e.g. fab deploy:source_files='file'
-srcfiles = local_config['srcfiles']
-remote_config = config['remote']
-# this can be overridden by specifying it as an option
-# to deploy e.g. fab deploy:remote_dir='/path/to/dir'
-destdir = remote_config['remote_dir']
+srcfiles = local_config['srcfiles'].split(',')
 depend_config = config['dependencies']
 aptlist = depend_config['apt'].split(',')
 piplist = depend_config['pip'].split(',')
 
+# Note this will be overrriden by any host specific configuration
+# see example fab.cfg file
+remote_config = config['remote']
