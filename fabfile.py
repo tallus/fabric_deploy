@@ -60,14 +60,17 @@ def predeploy():
 
 def resolve_dependencies(aptlist=None, piplist=None):
     aptlist = "".join(aptlist)
+    piplist = "".join(piplist)
     if aptlist:
         sudo("apt-get update")
-        result = sudo("apt-get install iy " + aptlist)
+        result = sudo("apt-get install -y " + aptlist)
         if result.failed:
-            abort('could not install required deb pacakges on' + env 
-            
-    # TODO remore sudo apt and pip
-    pass
+            abort('could not install required deb packages on' + env 
+    if piplist:
+        sudo("pip-get update")
+        result = sudo("pip install  " + piplist)
+        if result.failed:
+            abort('could not install required python packages on' + env 
     
 def deploy(source_files=None, remote_dir=None):
     if  not source_files:
