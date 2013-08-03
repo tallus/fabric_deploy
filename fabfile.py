@@ -5,6 +5,8 @@ from fabric.contrib.console import confirm
 import ConfigParser
     
 DEVSERVER = 'dev.freegeek.org'
+USER = 'paulm'
+LIST = 'support-staff'
 
 def load_config(config_file = None):
     '''Reads in configuration file.'''
@@ -23,17 +25,21 @@ def create_remote_git_repository(repo=REPOSITORY, desc = None):
     if not desc:
         desc = prompt("Please enter a project description")
     env.hosts = [DEVSERVER]
-    result = run("/usr/local/bin/create_project  -u paulm -l support-staff -d " + desc  + " ts_" + repo)
+    result = run("/usr/local/bin/create_project  -u " + USER 
+        + " -l " + LIST + " -d " + desc  + " ts_" + repo)
     if result.failed:
-        abort('Aborting...unable to create remote repository: ' + 'ts_' + repo)
-
+        abort('Aborting...unable to create remote repository: ' 
+                + 'ts_' + repo)
+    return result
 
 def git_status(code_dir=SRCDIR):
     '''run git status locally, abort if not up todate'''
     with cd(code_dir):
         result = local("git status -z", capture=True)
         if len(result) != 0:
-            abort('Aborting...uncommitted changes or files. Please commit any changes to git')
+            abort("Aborting...uncommitted changes or files.\
+                    Please commit any changes to git")
+    return result
 
 def git_push(repo=REPOSITORY, code_dir=SRCDIR):
     '''push git repo, abort on fail'''
@@ -41,10 +47,15 @@ def git_push(repo=REPOSITORY, code_dir=SRCDIR):
         result = local("git push " + repo)
         if result.failed:
             abort('Aborting...unable to push to repository: ' + repo)
+    return result
 
 def copy_file_to_server(srcfile, dest):
     ''' copy a file to the relevant directory on the remote server'''
-    put(srcfile, dest, use_sudo=True, mirror_local_mode=True)
+    result = put(srcfile, dest, use_sudo=True, mirror_local_mode=True)
+    if result.failed:
+        abort("Aborting...unable to copy %s to %s on %s" 
+            %(srcfile, dest, env.host)) 
+    return result
 
 def test_remote_dir(rdir):
     '''test to see if a remote directroy exists. Prompt user
@@ -55,31 +66,58 @@ def test_remote_dir(rdir):
         abort("Remote directory does not exist")
     else:
         create_remote_dir(rdir)
+    return result
 
 def create_remote_dir(rdir):
     '''create directory on remote server'''
     result = sudo ("mkdir -p " + rdir, quiet=True)
     if result.failed:
         abort('Could not create remote directory: ' + rdir)
+    return result
+
 
 def predeploy():
     '''ensure git is up to date  prior to deployment'''
     git_status()
     git_push()
 
-def resolve_dependencies(aptlist=None, piplist=None):
-    '''install debs / python packages on remote server as needed'''
+def get_deb_dependencies(config):
+    '''returns lists of deb packages to install'''
+    dependconfig = config['dependencies']
+    aptlist = dependconfig['apt'].split(',')
     aptlist = " ".join(aptlist)
+    return aptlist
+
+def get_pip_dependencies(config):
+    '''returns lists of python packages to install'''
+    dependconfig = config['dependencies']
+    piplist = dependconfig['pip'].split(',')
     piplist = " ".join(piplist)
+    return piplist
+
+def install_deb_dependencies(aptlist):
+    '''install required deb packages'''
+    sudo("apt-get update")
+    result = sudo("apt-get install -y " + aptlist)
+    if result.failed:
+        abort('could not install required deb packages on ' + env.host)
+    return result
+
+def install_pip_dependencies(piplist):
+    '''install required python packages'''
+    result = sudo("pip install  " + piplist)
+    if result.failed:
+        abort('could not install required python packages on' + env.host) 
+    return result
+
+def resolve_dependencies(config):    
+    '''install debs / python packages on remote server as needed'''
+    aptlist = get_deb_dependencies(config)
     if aptlist:
-        sudo("apt-get update")
-        result = sudo("apt-get install -y " + aptlist)
-        if result.failed:
-            abort('could not install required deb packages on ' + env.host)
+        install_deb_dependencies(aptlist) 
+    piplist = get_deb_dependencies(config)
     if piplist:
-        result = sudo("pip install  " + piplist)
-        if result.failed:
-            abort('could not install required python packages on' + env.host) 
+        install_pip_dependencies(piplist) 
 
 def get_remote_dir(remote_dir=None):
     '''returns the remote directory to use'''
@@ -133,7 +171,7 @@ def deploy(source_files=None, remote_dir=None):
     test_remote_dir(remotedir)
     # check git is up to date
     predeploy()
-    resolve_dependencies(APTLIST, PIPLIST)
+    resolve_dependencies(CONFIG)
     # copy source files
     for srcfile in source_files:
         source = get_source(srcfile)
@@ -145,13 +183,13 @@ def deploy(source_files=None, remote_dir=None):
 
 # Set config
 CONFIG = load_config('fab.cfg')
+
 NETWORKCONFIG = CONFIG['network']
 # allow overiding on the command line with --hosts
 if not env.hosts:
     HOSTLIST = NETWORKCONFIG['hosts'].split(',')
     env.hosts = HOSTLIST
-else:
-    HOSTLIST = env.hosts
+
 LOCALCONFIG = CONFIG['local']
 # these can not be overridden
 SRCDIR =  LOCALCONFIG['source_dir']
@@ -159,6 +197,3 @@ REPOSITORY = LOCALCONFIG['repository']
 # this can be overridden by specifying it as an option
 # to deploy e.g. fab deploy:source_files='file'
 SRCFILES = LOCALCONFIG['srcfiles'].split(',')
-DEPENDCONFIG = CONFIG['dependencies']
-APTLIST = DEPENDCONFIG['apt'].split(',')
-PIPLIST = DEPENDCONFIG['pip'].split(',')
