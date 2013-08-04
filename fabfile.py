@@ -81,17 +81,33 @@ def predeploy():
     git_status()
     git_push()
 
-def get_deb_dependencies(config):
+def get_deb_dependencies(config, role=None):
     '''returns lists of deb packages to install'''
-    dependconfig = config['dependencies']
-    aptlist = dependconfig['apt'].split(',')
+    if config['role']:
+        dependconfig=config['role']
+        if dependconfig['apt']:
+            aptlist = dependconfig['apt'].split(',')
+        else:
+            dependconfig = config['dependencies']
+            aptlist = dependconfig['apt'].split(',')
+     else:
+        dependconfig = config['dependencies']
+        aptlist = dependconfig['apt'].split(',')
     aptlist = " ".join(aptlist)
     return aptlist
 
-def get_pip_dependencies(config):
+def get_pip_dependencies(config, role=None):
     '''returns lists of python packages to install'''
-    dependconfig = config['dependencies']
-    piplist = dependconfig['pip'].split(',')
+    if config['role']:
+        dependconfig=config['role']
+        if dependconfig['pip']:
+            piplist = dependconfig['pip'].split(',')
+        else:
+            dependconfig = config['dependencies']
+            piplist = dependconfig['pip'].split(',')
+     else:
+        dependconfig = config['dependencies']
+        piplist = dependconfig['pip'].split(',')
     piplist = " ".join(piplist)
     return piplist
 
@@ -110,20 +126,22 @@ def install_pip_dependencies(piplist):
         abort('could not install required python packages on' + env.host) 
     return result
 
-def resolve_dependencies(config):    
+def resolve_dependencies(config, role=None):    
     '''install debs / python packages on remote server as needed'''
-    aptlist = get_deb_dependencies(config)
+    aptlist = get_deb_dependencies(config, role)
     if aptlist:
         install_deb_dependencies(aptlist) 
-    piplist = get_deb_dependencies(config)
+    piplist = get_deb_dependencies(config, role)
     if piplist:
         install_pip_dependencies(piplist) 
 
-def get_remote_dir(remote_dir=None):
+def get_remote_dir(role=None):
     '''returns the remote directory to use'''
     # check to see if there is per host configuration
     if CONFIG[env.host]:
         remote_config = CONFIG[env.host]
+    elif CONFIG[role]:
+        remote_config = CONFIG[role]
     else:
         remote_config = CONFIG['remote']
     if remote_config['remote_dir']:
@@ -135,11 +153,13 @@ def get_remote_dir(remote_dir=None):
         remote_dir = remote_dir + '/'
     return remote_dir
 
-def get_dest(remotedir, srcfile):
+def get_dest(remotedir, srcfile, role=None):
     '''returns destination path/name'''
     # check to see if there is per host configuration
     if CONFIG[env.host]:
         remote_config = CONFIG[env.host]
+    elif CONFIG[role]:
+        remote_config = CONFIG[role]
     else:
         remote_config = CONFIG['remote']
     if remote_config[srcfile]:
@@ -159,26 +179,44 @@ def get_source(srcfile):
         source = srcfile
     return source
 
-def deploy(source_files=None, remote_dir=None):
-    '''Main function to deploy software. Call this as fab deploy.'''
-    if  not source_files:
+
+def get_hosts(srcfile):
+    '''get list of hosts to install file on, using roles???'''
+    pass
+
+def get_srcfiles(config=CONFIG, role=None):
+    '''get list of srcfiles'''
         source_files = SRCFILES
         source_files = source_files.split(',')
     if not source_files:
         abort('No source files supplied')
-    remotedir = get_remote_dir(remote_dir) 
+    pass
+
+def deploy_file(srcfile, role=None):
+    '''deploy individual file'''
+    source = get_source(srcfile)
+    remotedir = get_remote_dir(role) 
     # check to see if remote_dir exists
     test_remote_dir(remotedir)
-    # check git is up to date
-    predeploy()
-    resolve_dependencies(CONFIG)
-    # copy source files
-    for srcfile in source_files:
-        source = get_source(srcfile)
-        dest = get_dest(remotedir, srcfile) 
-        copy_file_to_server(source, dest)
+    dest = get_dest(remotedir, srcfile, role) 
+    result = copy_file_to_server(source, dest)
+    return result
 
+def deploy(roles=None):
+    '''Main function to deploy software. Call this as fab deploy.'''
 
+    # TODO implement get_roles() 
+
+    for role in roles:
+        source_files = get_srcfiles(CONFIG, role)
+        # check git is up to date
+        predeploy()
+        @roles(role)
+        resolve_dependencies(CONFIG, role)
+        # copy source files
+        for srcfile in source_files:
+            @roles(role)
+            deploy_file(srcfile, role)
 
 
 # Set config
@@ -190,10 +228,13 @@ if not env.hosts:
     HOSTLIST = NETWORKCONFIG['hosts'].split(',')
     env.hosts = HOSTLIST
 
-LOCALCONFIG = CONFIG['local']
+SOURCECONFIG = CONFIG['source']
 # these can not be overridden
-SRCDIR =  LOCALCONFIG['source_dir']
-REPOSITORY = LOCALCONFIG['repository']
+SRCDIR =  SOURCECONFIG['source_dir']
+REPOSITORY = SOURCECONFIG['repository']
 # this can be overridden by specifying it as an option
 # to deploy e.g. fab deploy:source_files='file'
-SRCFILES = LOCALCONFIG['srcfiles'].split(',')
+SRCFILES = SOURCECONFIG['srcfiles'].split(',')
+
+# TODO  GET ROLES 
+
