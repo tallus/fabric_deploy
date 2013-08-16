@@ -36,7 +36,7 @@ def git_status(code_dir=SRCDIR):
     '''run git status locally, abort if not up todate'''
     with cd(code_dir):
         result = local("git status -z", capture=True)
-        if len(result) != 0:
+        if result:
             abort("Aborting...uncommitted changes or files.\
                     Please commit any changes to git")
     return result
